@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { useCurrentItem, Feedback, choiceClass } from "./shared";
-import { speak, hasUserInteracted } from "../utils/misc";
+import { speak } from "../utils/misc";
 
 export function ListenToMeaning() {
   const cur = useCurrentItem();
@@ -10,16 +10,13 @@ export function ListenToMeaning() {
   const answerChoice = useAppStore((s) => s.answerChoice);
   const nextCard = useAppStore((s) => s.nextCard);
   const lang = lib?.lang || "en";
-  // 是否已首次听过（用户点击播放后变 true，之后自动播放）
+  // 是否有过用户交互（首次进入不自动播，避免被 iOS 拦截）
   const [primed, setPrimed] = useState(false);
 
   useEffect(() => {
-    if (cur && !cur.answered) {
+    if (cur && !cur.answered && primed) {
       const w = cur.item.word;
-      // 移动端需要用户交互后才能自动 speak
-      if (primed || hasUserInteracted()) {
-        speak(lang === "ja" ? w.kana || w.word : w.word, lang);
-      }
+      speak(lang === "ja" ? w.kana || w.word : w.word, lang);
     }
   }, [cur?.item.word.wordId, primed]);
 
@@ -40,7 +37,7 @@ export function ListenToMeaning() {
         <div className="emoji">🎧</div>
         <div style={{ fontSize: 13, color: "var(--text-mute)", marginBottom: 10 }}>听发音，选释义</div>
         <button className="speak-btn" onClick={doSpeak}>
-          🔊 {primed || hasUserInteracted() ? "再听一次" : "点我播放"}
+          🔊 {primed ? "再听一次" : "点我播放"}
         </button>
         {lang === "ja" && (
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-sub)", marginTop: 8 }}>

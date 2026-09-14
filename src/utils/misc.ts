@@ -10,19 +10,11 @@ export function shuffle<T>(arr: T[]): T[] {
 }
 
 // ====== TTS（修复 iOS Safari 兼容性） ======
+// 核心原则：speak 必须是同步函数！
+// iOS Safari 用户点击事件的"手势上下文"在 await 后立即失效，
+// 任何 async/await 都会导致 speak() 被静默拦截。
 let _voices: SpeechSynthesisVoice[] = [];
 let _voicesLoaded = false;
-// iOS/Android：首次 speak 必须在用户交互事件中（click/touch），否则被静默拦截
-// 记录是否已经有过用户交互
-let _userInteracted = false;
-// 设置全局用户交互标记（每个 onClick/onTouchStart 都会自然触发）
-function markUserInteracted() { _userInteracted = true; }
-if (typeof window !== "undefined") {
-  const onInteract = () => markUserInteracted();
-  document.addEventListener("click", onInteract, { passive: true });
-  document.addEventListener("touchstart", onInteract, { passive: true });
-  document.addEventListener("keydown", onInteract, { passive: true });
-}
 
 function loadVoices() {
   if (!("speechSynthesis" in window)) return;
@@ -33,12 +25,12 @@ function loadVoices() {
   }
 }
 
-if ("speechSynthesis" in window) {
+// 页面加载时触发 voices 加载；iOS 上 getVoices() 首次返回空，
+// 等 onvoiceschanged 事件后才有值
+if (typeof window !== "undefined" && "speechSynthesis" in window) {
   loadVoices();
-  window.speechSynthesis.onvoiceschanged = () => {
-    loadVoices();
-  };
-  // iOS 兜底：有时 onvoiceschanged 不触发，多次重试
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+  // 兜底：3 秒内每 300ms 重试一次
   let retry = 0;
   const timer = setInterval(() => {
     loadVoices();
@@ -47,52 +39,47 @@ if ("speechSynthesis" in window) {
   }, 300);
 }
 
-// 等 voices 加载完成（iOS 必须）
-async function ensureVoices(): Promise<boolean> {
-  if (!("speechSynthesis" in window)) return false;
-  if (_voicesLoaded && _voices.length > 0) return true;
-  // 触发一次加载
-  loadVoices();
-  if (_voices.length > 0) { _voicesLoaded = true; return true; }
-  // 等待 onvoiceschanged
-  return new Promise((resolve) => {
-    let waited = 0;
-    const check = setInterval(() => {
-      waited += 100;
-      loadVoices();
-      if (_voices.length > 0 || waited > 3000) {
-        clearInterval(check);
-        resolve(_voices.length > 0);
-      }
-    }, 100);
-  });
+// 选择最佳 voice（同步，不阻塞）
+function pickVoice(targetLang: string): SpeechSynthesisVoice | undefined {
+  if (!_voices.length) return undefined;
+  // targetLang 形如 "en" / "ja" / "zh"
+  const prefix = targetLang.toLowerCase().slice(0, 2);
+  // 精确匹配（如 en-US / en-GB）
+  let v = _voices.find((x) => x.lang && x.lang.toLowerCase().startsWith(prefix));
+  if (!v) v = _voices.find((x) => x.lang && x.lang.toLowerCase().includes(prefix));
+  return v;
 }
 
-export async function speak(text: string, lang: string) {
+// 同步 speak！不能加 async/await！
+export function speak(text: string, lang: string) {
   try {
-    if (!("speechSynthesis" in window)) return;
-    await ensureVoices();
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    // 确保 voices 已加载（同步触发）
+    if (!_voicesLoaded) loadVoices();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang === "ja" ? "ja-JP" : lang === "en" ? "en-US" : "zh-CN";
     u.rate = lang === "ja" ? 0.85 : 0.9;
     u.pitch = 1;
-    // 优先选匹配语言的 voice（iOS 上必须选到合适的 voice 才能出声）
-    let v = _voices.find((x) => x.lang && x.lang.toLowerCase().startsWith(u.lang!.toLowerCase().slice(0, 2)));
-    if (!v) v = _voices.find((x) => x.lang && x.lang.toLowerCase().includes(u.lang!.toLowerCase()));
+    const v = pickVoice(u.lang);
     if (v) u.voice = v;
-    // iOS: cancel 后必须等一下才能 speak
+    // iOS: cancel 后 speak 会被吞，改用 cancel 后短暂延迟
+    // 但关键是 speak 调用本身必须在当前同步调用栈里！
     window.speechSynthesis.cancel();
+    // 用 setImmediate / setTimeout 0 让 cancel 生效，但不丢失手势上下文
     setTimeout(() => {
       try {
         window.speechSynthesis.speak(u);
       } catch { /* ignore */ }
-    }, 50);
+    }, 30);
   } catch { /* ignore */ }
 }
 
-// 移动端：首次 speak 前需要用户交互（点击/触摸），否则不会发声
-// 调用方在用户交互中调用此函数，之后自动 speak 就可以了
-export function hasUserInteracted() { return _userInteracted; }
+// 诊断：输出当前可用 voices 列表（移动端调试点时用）
+export function debugVoices(): string {
+  if (!("speechSynthesis" in window)) return "no speechSynthesis";
+  loadVoices();
+  return _voices.map((v) => `${v.lang} ${v.name}`).join("\n") || "(empty)";
+}
 
 export function todayStr(d = new Date()) {
   const y = d.getFullYear();
