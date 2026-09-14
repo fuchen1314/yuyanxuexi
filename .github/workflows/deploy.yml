@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+      - run: npm install
       # 子路径部署：根据仓库名设置 base（用户名为 REPO_OWNER，仓库名为 REPO_NAME）
       # 如果仓库名是 <owner>.github.io，base 为 /，否则为 /<repo>/
       - name: Set base path
