@@ -9,7 +9,7 @@ import {
   bulkPutWords, getAllWords, getAllStates, ensureSettings, putSettings,
   getSettings, newState, getState, putState, bulkInitStates,
   exportAll, importAll, clearAll, getWrongBook, getHardBook, today,
-  getLog, putLog,
+  getLog, putLog, ensureBuiltinLibs,
 } from "../db";
 import { applyAnswer, buildQueues, getStats } from "../srs/scheduler";
 import { parseAny, autoDetectLang, dedupe } from "../utils/parse";
@@ -93,6 +93,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   reviewModeQueue: [],
 
   init: async () => {
+    // 先载入内置词库（首次启动或词库版本升级时）
+    try {
+      await ensureBuiltinLibs();
+    } catch (e) {
+      console.warn("内置词库载入失败：", e);
+    }
     await checkDailyReset();
     const libs = await listLibraries();
     set({ libraries: libs, ready: true });
@@ -171,6 +177,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   removeLibrary: async (libId) => {
+    const lib = await getLibrary(libId);
+    if (lib?.type === "builtin") {
+      get().showToast("内置词库不可删除，可重置进度", "error");
+      return;
+    }
     await dbDeleteLib(libId);
     const libs = await listLibraries();
     set({ libraries: libs });

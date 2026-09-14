@@ -25,7 +25,7 @@ export interface LibraryMeta {
   name: string;
   lang: Lang;
   level: string;
-  type: "custom";
+  type: "builtin" | "custom";   // builtin=内置（不可删除，可重置进度）；custom=用户导入
   total: number;
   createdAt: number;
 }

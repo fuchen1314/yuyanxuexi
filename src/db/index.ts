@@ -4,6 +4,8 @@ import localforage from "localforage";
 import type {
   LibraryMeta, WordEntry, WordState, LibSettings, DailyLog,
 } from "../types";
+import { parseAny, autoDetectLang, dedupe } from "../utils/parse";
+import { BUILTIN_LIBS, BUILTIN_LIBS_VERSION, type BuiltinLibDef } from "../data/builtinLibs";
 
 // 配置：一个 driver，多个 store
 localforage.config({ name: "zhanci", driver: localforage.INDEXEDDB });
@@ -15,6 +17,95 @@ const settingsStore = localforage.createInstance({ name: "zhanci", storeName: "m
 const logStore = localforage.createInstance({ name: "zhanci", storeName: "logs" });
 
 const key = (libId: string, wordId: number | string) => `${libId}:${wordId}`;
+
+// ====== 内置词库载入 ======
+const BUILTIN_FLAG_KEY = "__builtin_loaded_version__";
+
+// 检查内置词库是否需要（重新）载入
+export async function getBuiltinLoadedVersion(): Promise<number> {
+  return (await settingsStore.getItem<number>(BUILTIN_FLAG_KEY)) || 0;
+}
+async function setBuiltinLoadedVersion(v: number) {
+  await settingsStore.setItem(BUILTIN_FLAG_KEY, v);
+}
+
+// 从 public 目录 fetch 一个 CSV 词库文件
+async function fetchBuiltinFile(file: string): Promise<string> {
+  // 兼容子路径部署：用相对路径
+  const url = (import.meta.env.BASE_URL || "/") + file.replace(/^\//, "");
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`加载词库失败：${file} (${res.status})`);
+  return await res.text();
+}
+
+// 把一个内置词库定义载入 IndexedDB（如已存在则跳过，除非 force）
+async function loadOneBuiltin(def: BuiltinLibDef, force = false) {
+  // 检查是否已存在
+  const existing = await libStore.getItem<LibraryMeta>(def.id);
+  if (existing && !force) return existing;
+  // 抓文件
+  const text = await fetchBuiltinFile(def.file);
+  // 解析 + 去重
+  let words = parseAny(text, def.id);
+  words = dedupe(words);
+  if (!words.length) throw new Error(`词库 ${def.name} 解析后为空`);
+  // 元信息
+  const lib: LibraryMeta = {
+    id: def.id,
+    name: def.name,
+    lang: def.lang,
+    level: def.level,
+    type: "builtin",
+    total: words.length,
+    createdAt: Date.now(),
+  };
+  await libStore.setItem(def.id, lib);
+  // 词条
+  for (const w of words) {
+    await wordStore.setItem(key(def.id, w.wordId), { ...w, libId: def.id });
+  }
+  // 初始化状态
+  for (const w of words) {
+    const k = key(def.id, w.wordId);
+    if (!(await stateStore.getItem(k))) {
+      await stateStore.setItem(k, newState(def.id, w.wordId));
+    }
+  }
+  await ensureSettings(def.id);
+  return lib;
+}
+
+// 启动时调用：确保所有内置词库已载入（版本不匹配则全部重新载入）
+export async function ensureBuiltinLibs(): Promise<{ loaded: number; skipped: boolean }> {
+  const v = await getBuiltinLoadedVersion();
+  if (v === BUILTIN_LIBS_VERSION) {
+    // 检查是否真的都在（可能用户清过部分数据）
+    const all = await listLibraries();
+    const missing = BUILTIN_LIBS.some((d) => !all.find((l) => l.id === d.id));
+    if (!missing) return { loaded: 0, skipped: true };
+  }
+  // 需要载入（首次或版本升级或部分缺失）
+  let count = 0;
+  for (const def of BUILTIN_LIBS) {
+    try {
+      // 已存在的不强制覆盖（保留用户进度）；只补缺失的
+      const exists = await libStore.getItem<LibraryMeta>(def.id);
+      if (!exists) {
+        await loadOneBuiltin(def, false);
+        count++;
+      }
+    } catch (e) {
+      console.warn(`内置词库 ${def.name} 载入失败：`, e);
+    }
+  }
+  await setBuiltinLoadedVersion(BUILTIN_LIBS_VERSION);
+  return { loaded: count, skipped: false };
+}
+
+// 强制重新载入某个内置词库（保留状态，只重读文件——用于词库内容更新）
+export async function reloadBuiltinLib(def: BuiltinLibDef) {
+  await loadOneBuiltin(def, true);
+}
 
 // ====== 词库 ======
 export async function listLibraries(): Promise<LibraryMeta[]> {

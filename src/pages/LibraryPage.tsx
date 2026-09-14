@@ -24,9 +24,10 @@ export function LibraryPage() {
     return (
       <div className="empty">
         <div className="ico">🗂</div>
-        <h2 style={{ fontSize: 18, color: "var(--text)" }}>还没有任何词库</h2>
-        <p style={{ marginBottom: 20 }}>导入词库开始背单词之旅</p>
-        <button className="btn primary" style={{ maxWidth: 240, margin: "0 auto" }} onClick={() => setImportOpen(true)}>📥 导入词库</button>
+        <h2 style={{ fontSize: 18, color: "var(--text)" }}>词库正在载入…</h2>
+        <p style={{ marginBottom: 20 }}>内置词库首次加载需要几秒</p>
+        <button className="btn ghost" style={{ maxWidth: 200, margin: "0 auto 12px" }} onClick={() => location.reload()}>刷新</button>
+        <button className="btn primary" style={{ maxWidth: 240, margin: "0 auto" }} onClick={() => setImportOpen(true)}>📥 手动导入词库</button>
         <ImportOverlay open={importOpen} onClose={() => setImportOpen(false)} onDone={() => setImportOpen(false)} />
       </div>
     );
@@ -49,12 +50,13 @@ function LibRow({ lib, active, onSelect, onBrowse, onReset, onDelete }: any) {
   const [learned, setLearned] = useState(0);
   useEffect(() => { getStats(lib.id).then((s) => { const ln = s.mastered + s.learning + s.review; setLearned(ln); setPct(lib.total > 0 ? Math.round((ln / lib.total) * 100) : 0); }); }, [lib.id]);
   const flag = (l: Lang) => (l === "en" ? "🇬🇧" : l === "ja" ? "🇯🇵" : "🌐");
+  const isBuiltin = lib.type === "builtin";
   return (
     <div className={`lib-row ${active ? "active" : ""}`}>
       <div className="flag" onClick={onSelect}>{flag(lib.lang)}</div>
       <div className="info" onClick={onSelect}>
         <div className="name">{lib.name} {lib.level && <span style={{ fontSize: 11, color: "var(--text-mute)", fontWeight: 400 }}>{lib.level}</span>}</div>
-        <div className="meta">{learned}/{lib.total} 词 · 自定义</div>
+        <div className="meta">{learned}/{lib.total} 词 · {isBuiltin ? "内置" : "自定义"}</div>
       </div>
       <div className="prog" onClick={onBrowse} title="浏览词表">
         <svg width="50" height="50" viewBox="0 0 50 50">
@@ -64,7 +66,7 @@ function LibRow({ lib, active, onSelect, onBrowse, onReset, onDelete }: any) {
         <span className="pct">{pct}%</span>
       </div>
       <button className="del" onClick={onReset} title="重置进度">↺</button>
-      <button className="del" onClick={onDelete} title="删除">✕</button>
+      {!isBuiltin && <button className="del" onClick={onDelete} title="删除">✕</button>}
     </div>
   );
 }
