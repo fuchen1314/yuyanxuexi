@@ -1,8 +1,8 @@
 // review/ListenToMeaning.tsx — 听音选义：TTS 播放发音，四选一选释义
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { useCurrentItem, Feedback, choiceClass } from "./shared";
-import { speak } from "../utils/misc";
+import { speak, hasUserInteracted } from "../utils/misc";
 
 export function ListenToMeaning() {
   const cur = useCurrentItem();
@@ -10,13 +10,18 @@ export function ListenToMeaning() {
   const answerChoice = useAppStore((s) => s.answerChoice);
   const nextCard = useAppStore((s) => s.nextCard);
   const lang = lib?.lang || "en";
+  // 是否已首次听过（用户点击播放后变 true，之后自动播放）
+  const [primed, setPrimed] = useState(false);
 
   useEffect(() => {
     if (cur && !cur.answered) {
       const w = cur.item.word;
-      speak(lang === "ja" ? w.kana || w.word : w.word, lang);
+      // 移动端需要用户交互后才能自动 speak
+      if (primed || hasUserInteracted()) {
+        speak(lang === "ja" ? w.kana || w.word : w.word, lang);
+      }
     }
-  }, [cur?.item.word.wordId]);
+  }, [cur?.item.word.wordId, primed]);
 
   if (!cur) return null;
   const { item, choices, answered, correctIndex } = cur;
@@ -24,12 +29,19 @@ export function ListenToMeaning() {
   const correct = answered && last?.correct;
   const w = item.word;
 
+  const doSpeak = () => {
+    setPrimed(true);
+    speak(lang === "ja" ? w.kana || w.word : w.word, lang);
+  };
+
   return (
     <>
       <div className="word-card">
         <div className="emoji">🎧</div>
         <div style={{ fontSize: 13, color: "var(--text-mute)", marginBottom: 10 }}>听发音，选释义</div>
-        <button className="speak-btn" onClick={() => speak(lang === "ja" ? w.kana || w.word : w.word, lang)}>🔊 再听一次</button>
+        <button className="speak-btn" onClick={doSpeak}>
+          🔊 {primed || hasUserInteracted() ? "再听一次" : "点我播放"}
+        </button>
         {lang === "ja" && (
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-sub)", marginTop: 8 }}>
             <input type="checkbox" defaultChecked={false} onChange={(e) => { if (e.target.checked) speak(w.kana || w.word, lang); }} /> 显示假名

@@ -12,6 +12,17 @@ export function shuffle<T>(arr: T[]): T[] {
 // ====== TTS（修复 iOS Safari 兼容性） ======
 let _voices: SpeechSynthesisVoice[] = [];
 let _voicesLoaded = false;
+// iOS/Android：首次 speak 必须在用户交互事件中（click/touch），否则被静默拦截
+// 记录是否已经有过用户交互
+let _userInteracted = false;
+// 设置全局用户交互标记（每个 onClick/onTouchStart 都会自然触发）
+function markUserInteracted() { _userInteracted = true; }
+if (typeof window !== "undefined") {
+  const onInteract = () => markUserInteracted();
+  document.addEventListener("click", onInteract, { passive: true });
+  document.addEventListener("touchstart", onInteract, { passive: true });
+  document.addEventListener("keydown", onInteract, { passive: true });
+}
 
 function loadVoices() {
   if (!("speechSynthesis" in window)) return;
@@ -78,6 +89,10 @@ export async function speak(text: string, lang: string) {
     }, 50);
   } catch { /* ignore */ }
 }
+
+// 移动端：首次 speak 前需要用户交互（点击/触摸），否则不会发声
+// 调用方在用户交互中调用此函数，之后自动 speak 就可以了
+export function hasUserInteracted() { return _userInteracted; }
 
 export function todayStr(d = new Date()) {
   const y = d.getFullYear();
